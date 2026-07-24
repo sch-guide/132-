@@ -12,6 +12,12 @@ content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable
 <link rel="stylesheet" as="style" crossorigin
 href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 
+<script>
+if(window.navigator.standalone === true){
+    document.documentElement.classList.add("ios-standalone");
+}
+</script>
+
 <style>
 :root{
     --navy:#1B2A4A;
@@ -110,6 +116,7 @@ body{
 @media (display-mode: standalone) and (max-width: 760px){
     :root{
         --mobile-reader-top-gap:0px;
+        --mobile-reader-side-gap:0px;
     }
 
     html,
@@ -118,6 +125,28 @@ body{
     }
 
     #book{
+        width:100vw;
+        height:100vh;
+        height:100svh;
+        height:100dvh;
+        max-height:100dvh;
+        margin:0 auto;
+    }
+}
+
+@media (max-width: 760px){
+    html.ios-standalone{
+        --mobile-reader-top-gap:0px;
+        --mobile-reader-side-gap:0px;
+    }
+
+    html.ios-standalone,
+    html.ios-standalone body{
+        padding-top:0;
+    }
+
+    html.ios-standalone #book{
+        width:100vw;
         height:100vh;
         height:100svh;
         height:100dvh;
