@@ -107,6 +107,25 @@ body{
     }
 }
 
+@media (display-mode: standalone) and (max-width: 760px){
+    :root{
+        --mobile-reader-top-gap:0px;
+    }
+
+    html,
+    body{
+        padding-top:0;
+    }
+
+    #book{
+        height:100vh;
+        height:100svh;
+        height:100dvh;
+        max-height:100dvh;
+        margin:0 auto;
+    }
+}
+
 .controls{
     position:fixed;
     top:16px;
