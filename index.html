@@ -1389,6 +1389,64 @@ const lazyThumbObserver = new IntersectionObserver((entries) => {
     });
 }, { rootMargin: "300px" });
 
+const ACCESS_LOG_SITE_NAME = "132병동 간호사전";
+const ACCESS_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const ACCESS_SESSION_KEY = `sch_verified_access:${ACCESS_LOG_SITE_NAME}`;
+
+function getActiveAccessSession(){
+    try {
+        const raw = sessionStorage.getItem(ACCESS_SESSION_KEY);
+        if(!raw) return null;
+        const saved = JSON.parse(raw);
+        if(!saved || !saved.verifiedAt) return null;
+        if(Date.now() - Number(saved.verifiedAt) >= ACCESS_SESSION_TTL_MS){
+            sessionStorage.removeItem(ACCESS_SESSION_KEY);
+            return null;
+        }
+        return saved;
+    } catch(err){
+        console.warn("접속 세션 확인 실패:", err);
+        return null;
+    }
+}
+
+function saveAccessSession(name, empId, dept){
+    try {
+        sessionStorage.setItem(ACCESS_SESSION_KEY, JSON.stringify({
+            name,
+            employeeId: String(empId),
+            department: dept,
+            verifiedAt: Date.now()
+        }));
+    } catch(err){
+        console.warn("접속 세션 저장 실패:", err);
+    }
+}
+
+async function recordSuccessfulAccess(name, empId, dept){
+    try {
+        const { data: sessionData, error: sessionError } = await sbClient.auth.getSession();
+        if(sessionError) throw sessionError;
+        if(!sessionData.session || !sessionData.session.user){
+            throw new Error("익명 로그인 세션을 확인할 수 없습니다.");
+        }
+
+        const { data: logged, error } = await sbClient.rpc("log_successful_access", {
+            p_employee_name: name,
+            p_employee_id: String(empId),
+            p_department: dept,
+            p_site_name: ACCESS_LOG_SITE_NAME
+        });
+
+        if(error) throw error;
+        if(logged !== true){
+            throw new Error("접속 기록이 승인되지 않았습니다.");
+        }
+    } catch(err){
+        console.warn("접속 기록 저장 실패:", err);
+    }
+}
+
 async function initAuthAndBoot(){
     const authLoading = document.getElementById("authLoading");
     const authGate = document.getElementById("authGate");
@@ -1400,6 +1458,12 @@ async function initAuthAndBoot(){
         }
     } catch(err){
         console.error("세션 초기화 실패:", err);
+    }
+
+    if(!getActiveAccessSession()){
+        authLoading.classList.add("hidden");
+        authGate.classList.add("show");
+        return;
     }
 
     const readerImgs = book.querySelectorAll(".page img");
@@ -1456,6 +1520,8 @@ if(authFormEl){
             if(error) throw error;
 
             if(data === "ok"){
+                await recordSuccessfulAccess(name, empId, dept);
+                saveAccessSession(name, empId, dept);
                 document.getElementById("authGate").classList.remove("show");
                 const readerImgs = book.querySelectorAll(".page img");
                 await loadImgEl(readerImgs[0], pages[0]);
