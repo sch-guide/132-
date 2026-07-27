@@ -1423,8 +1423,44 @@ function saveAccessSession(name, empId, dept){
     }
 }
 
+function getClientEnvironment(){
+    const ua = navigator.userAgent || "";
+    const isIPadOS = navigator.platform === "MacIntel"
+        && navigator.maxTouchPoints > 1;
+    const isTablet = isIPadOS
+        || /iPad|Tablet/i.test(ua)
+        || (/Android/i.test(ua) && !/Mobile/i.test(ua));
+    const isMobile = !isTablet && (
+        navigator.userAgentData?.mobile === true
+        || /iPhone|iPod|Android.*Mobile|Mobile/i.test(ua)
+    );
+
+    let browserName = "알 수 없음";
+    if(/SamsungBrowser/i.test(ua)){
+        browserName = "Samsung Internet";
+    } else if(/EdgA|EdgiOS|Edg\//i.test(ua)){
+        browserName = "Edge";
+    } else if(/OPR|Opera/i.test(ua)){
+        browserName = "Opera";
+    } else if(/CriOS|Chrome/i.test(ua)){
+        browserName = "Chrome";
+    } else if(/FxiOS|Firefox/i.test(ua)){
+        browserName = "Firefox";
+    } else if(/Safari/i.test(ua)){
+        browserName = "Safari";
+    }
+
+    return {
+        deviceType: isTablet ? "태블릿" : (isMobile ? "휴대폰" : "컴퓨터"),
+        browserName,
+        isInstalledApp: window.matchMedia("(display-mode: standalone)").matches
+            || window.navigator.standalone === true
+    };
+}
+
 async function recordSuccessfulAccess(name, empId, dept){
     try {
+        const environment = getClientEnvironment();
         const { data: sessionData, error: sessionError } = await sbClient.auth.getSession();
         if(sessionError) throw sessionError;
         if(!sessionData.session || !sessionData.session.user){
@@ -1435,7 +1471,10 @@ async function recordSuccessfulAccess(name, empId, dept){
             p_employee_name: name,
             p_employee_id: String(empId),
             p_department: dept,
-            p_site_name: ACCESS_LOG_SITE_NAME
+            p_site_name: ACCESS_LOG_SITE_NAME,
+            p_device_type: environment.deviceType,
+            p_browser_name: environment.browserName,
+            p_is_installed_app: environment.isInstalledApp
         });
 
         if(error) throw error;
