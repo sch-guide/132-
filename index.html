@@ -1390,37 +1390,59 @@ const lazyThumbObserver = new IntersectionObserver((entries) => {
 }, { rootMargin: "300px" });
 
 const ACCESS_LOG_SITE_NAME = "132병동 간호사전";
-const ACCESS_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-const ACCESS_SESSION_KEY = `sch_verified_access:${ACCESS_LOG_SITE_NAME}`;
+const ACCESS_IDENTITY_KEY = `sch_verified_identity:${ACCESS_LOG_SITE_NAME}`;
+const ACCESS_LOGGED_SESSION_KEY = `sch_access_logged:${ACCESS_LOG_SITE_NAME}`;
+const LEGACY_ACCESS_SESSION_KEY = `sch_verified_access:${ACCESS_LOG_SITE_NAME}`;
 
-function getActiveAccessSession(){
+function getStoredAccessIdentity(){
     try {
-        const raw = sessionStorage.getItem(ACCESS_SESSION_KEY);
-        if(!raw) return null;
-        const saved = JSON.parse(raw);
-        if(!saved || !saved.verifiedAt) return null;
-        if(Date.now() - Number(saved.verifiedAt) >= ACCESS_SESSION_TTL_MS){
-            sessionStorage.removeItem(ACCESS_SESSION_KEY);
+        let raw = localStorage.getItem(ACCESS_IDENTITY_KEY);
+
+        if(!raw){
+            raw = sessionStorage.getItem(LEGACY_ACCESS_SESSION_KEY);
+            if(raw){
+                const legacy = JSON.parse(raw);
+                if(legacy?.name && legacy?.employeeId && legacy?.department){
+                    saveAccessIdentity(legacy.name, legacy.employeeId, legacy.department);
+                    sessionStorage.removeItem(LEGACY_ACCESS_SESSION_KEY);
+                    return legacy;
+                }
+            }
             return null;
         }
+
+        const saved = JSON.parse(raw);
+        if(!saved || !saved.name || !saved.employeeId || !saved.department) return null;
         return saved;
     } catch(err){
-        console.warn("접속 세션 확인 실패:", err);
+        console.warn("저장된 로그인 정보 확인 실패:", err);
         return null;
     }
 }
 
-function saveAccessSession(name, empId, dept){
+function saveAccessIdentity(name, empId, dept){
     try {
-        sessionStorage.setItem(ACCESS_SESSION_KEY, JSON.stringify({
+        localStorage.setItem(ACCESS_IDENTITY_KEY, JSON.stringify({
             name,
             employeeId: String(empId),
-            department: dept,
-            verifiedAt: Date.now()
+            department: dept
         }));
     } catch(err){
-        console.warn("접속 세션 저장 실패:", err);
+        console.warn("로그인 정보 저장 실패:", err);
     }
+}
+
+function clearAccessIdentity(){
+    localStorage.removeItem(ACCESS_IDENTITY_KEY);
+    sessionStorage.removeItem(ACCESS_LOGGED_SESSION_KEY);
+}
+
+function wasAccessLoggedThisSession(){
+    return sessionStorage.getItem(ACCESS_LOGGED_SESSION_KEY) === "1";
+}
+
+function markAccessLoggedThisSession(){
+    sessionStorage.setItem(ACCESS_LOGGED_SESSION_KEY, "1");
 }
 
 function getClientEnvironment(){
@@ -1481,8 +1503,10 @@ async function recordSuccessfulAccess(name, empId, dept){
         if(logged !== true){
             throw new Error("접속 기록이 승인되지 않았습니다.");
         }
+        return true;
     } catch(err){
         console.warn("접속 기록 저장 실패:", err);
+        return false;
     }
 }
 
@@ -1499,7 +1523,39 @@ async function initAuthAndBoot(){
         console.error("세션 초기화 실패:", err);
     }
 
-    if(!getActiveAccessSession()){
+    const savedIdentity = getStoredAccessIdentity();
+    if(!savedIdentity){
+        authLoading.classList.add("hidden");
+        authGate.classList.add("show");
+        return;
+    }
+
+    try {
+        const { data, error } = await sbClient.rpc("verify_employee", {
+            p_name: savedIdentity.name,
+            p_emp_id: String(savedIdentity.employeeId),
+            p_dept: savedIdentity.department
+        });
+
+        if(error) throw error;
+
+        if(data !== "ok"){
+            clearAccessIdentity();
+            authLoading.classList.add("hidden");
+            authGate.classList.add("show");
+            return;
+        }
+
+        if(!wasAccessLoggedThisSession()){
+            const logged = await recordSuccessfulAccess(
+                savedIdentity.name,
+                savedIdentity.employeeId,
+                savedIdentity.department
+            );
+            if(logged) markAccessLoggedThisSession();
+        }
+    } catch(err){
+        console.error("직원 명단 자동 확인 실패:", err);
         authLoading.classList.add("hidden");
         authGate.classList.add("show");
         return;
@@ -1559,8 +1615,9 @@ if(authFormEl){
             if(error) throw error;
 
             if(data === "ok"){
-                await recordSuccessfulAccess(name, empId, dept);
-                saveAccessSession(name, empId, dept);
+                const logged = await recordSuccessfulAccess(name, empId, dept);
+                saveAccessIdentity(name, empId, dept);
+                if(logged) markAccessLoggedThisSession();
                 document.getElementById("authGate").classList.remove("show");
                 const readerImgs = book.querySelectorAll(".page img");
                 await loadImgEl(readerImgs[0], pages[0]);
